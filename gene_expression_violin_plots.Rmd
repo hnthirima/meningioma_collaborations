@@ -1,0 +1,181 @@
+---
+title: "Plot Violin plots to compare gene expression in two groups"
+output: html_notebook
+author: Nayanga Thirimanne
+date: "February 2024"
+---
+
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+library(rstatix)
+```
+
+Load data files
+```{r}
+log2tpm <- read_rds("~/1298samples_combatseq_log2tpm.rds") #batch corrected, normalized RNA-Seq count file
+clusterID <- read_rds("~/dbscan_1298_cl9_uncl48.rds") #umap clusters
+clusterID$cluster[clusterID$cluster == "1"] <- "A"
+clusterID$cluster[clusterID$cluster == "2"] <- "B"
+clusterID$cluster[clusterID$cluster == "3"] <- "C"
+clusterID$cluster[clusterID$cluster == "4"] <- "D"
+clusterID$cluster[clusterID$cluster == "5"] <- "E"
+clusterID$cluster[clusterID$cluster == "6"] <- "F"
+clusterID$cluster[clusterID$cluster == "7"] <- "G"
+clusterID$cluster[clusterID$cluster == "8"] <- "H"
+clusterID$cluster[clusterID$cluster == "9"] <- "I"
+
+sample_info <- readxl::read_excel("~/clinical_patient_v40b_20240131.xlsx", skip = 5) #metadata file
+sample_info <- sample_info[-1, ]
+```
+
+
+ggplot2 specifications
+```{r}
+plot_title_size = 20
+legend_pt_size = 4
+axis_text_size = 25
+axis_title_size = 25
+legend_text_size = 15
+spacing = 1
+chosen_margin = c(0.5,1,0.5,1) #top,right,bottom,left
+theme_grid_nolegend <- theme_bw()+
+  theme(plot.title = element_text(hjust=0, vjust=0, lineheight=.8, face="bold", size=plot_title_size),
+        plot.margin = unit(chosen_margin,"cm"),
+        legend.text = element_text(size=legend_text_size),
+        legend.key.height = unit(spacing,"cm"),
+        legend.position = "none",
+        legend.justification = "left",
+        legend.title = element_blank())
+
+theme_grid_legend <- theme_bw()+
+  theme(plot.title = element_text(hjust=0, vjust=0, lineheight=.8, face="bold", size=plot_title_size),
+        plot.margin = unit(chosen_margin,"cm"),
+        legend.text = element_text(size=legend_text_size, face = "bold"),
+        legend.key.height = unit(spacing,"cm"),
+        legend.position = "top",
+        legend.justification = "left",
+        legend.title = element_blank())
+
+```
+
+
+Violing plots to compare genes in cluster A and B (only samples with known NF2 status)
+```{r}
+
+NF2yes <- subset(sample_info, sample_info$NF2_ISSUE == "yes" | sample_info$NF2_ISSUE == "no")
+clusterID_sub <- subset(clusterID, (clusterID$cluster == "A" | clusterID$cluster == "B") ) %>%
+  filter(., .$coordinate_ID %in% NF2yes$coordinate_ID) %>%
+  group_by(cluster)
+
+```
+
+```{r}
+setwd("~//Results/")
+gene = "CCN1"
+font_size = 18
+my_violin_plot = function(gene){
+ log2tpm_sub <- log2tpm[, colnames(log2tpm) %in% clusterID_sub$coordinate_ID] %>% 
+  as.data.frame(.) %>%
+  filter(., rownames(.) %in% gene) %>%
+  t(.)  %>%
+  as.data.frame(.) %>%
+  rownames_to_column(., var = "coordinate_ID") %>%
+  left_join(., clusterID_sub, by = "coordinate_ID") %>%
+  melt(.)
+  
+p <-  log2tpm_sub %>% 
+  ggplot(aes(x = cluster, y = value, fill = cluster)) +
+  scale_fill_manual(values = c("green4", "navyblue")) +
+  geom_violin( alpha = 0.5) +
+  xlab("") +
+  ylab(gene)
+
+pp <- p + scale_x_discrete(breaks = c("A", "B"),
+                     labels= c("A(mal)", "B(ben)")) +
+  expand_limits(y = 0) +
+  theme_bw() +
+  theme(axis.title.x = element_text(size = font_size, face = "bold", colour = "black"),
+        axis.title.y = element_text(size = font_size, face = "bold", colour = "black"),
+        axis.text.x = element_text(size = font_size, face = "bold", colour = "black"),
+        axis.text.y = element_text(size = font_size, face = "bold", colour = "black"),
+        legend.position = "none"
+  ) 
+
+pp + stat_compare_means(method = "t.test", label = "p",
+                        label.x = 1.5, size = 6)
+
+
+}
+
+```
+
+
+```{r}
+my_violin_plot("CCN1")
+```
+
+
+```{r}
+setwd("~/Results/")
+
+genes <- c("CCN2", "CCN1", "XX", "YY", "ZZ", "PP", "OO")
+
+for (gene in genes) {
+  pdf(paste0(gene, "_clustersAandB.pdf"), width = 6, height = 6)
+  pq <- my_violin_plot(gene)
+  print(pq)
+  dev.off()
+}
+
+```
+
+
+
+Alternative pvalue labeling for violin plot
+```{r}
+pp + stat_compare_means(label = "p.signif", method = "t.test",
+                     paired = FALSE, hide.ns = FALSE,
+                     size = 10, label.x = 1.5, vjust = 1) 
+
+```
+
+
+
+Plot  genes in clusters A, B, C and D, that have NF2 status - multiple plots in single PDF
+```{r}
+setwd("~/Results/")
+clusterID_sub <- subset(clusterID, (clusterID$cluster == "A" | clusterID$cluster == "B" |
+                                      clusterID$cluster == "C" | clusterID$cluster == "D") )
+
+NF2yes <- subset(sample_info, sample_info$NF2_ISSUE == "yes" | sample_info$NF2_ISSUE == "no")
+clusterID_sub <- subset(clusterID_sub, clusterID_sub$coordinate_ID %in% NF2yes$coordinate_ID)
+log2tpm_sub <- log2tpm[, colnames(log2tpm) %in% clusterID_sub$coordinate_ID]
+
+log2tpm.t <- t(log2tpm_sub) %>%
+  as.data.frame(.)
+genes <- c("CCN2", "CCN1", "XX", "YY", "ZZ", "PP", "OO")
+log2tpmsub <- log2tpm.t[, colnames(log2tpm.t) %in% genes]
+log2tpmsub <- rownames_to_column(log2tpmsub, var = "coordinate_ID")
+
+pdf("XXXXXX in clustersABCD.pdf")
+a1 = lapply(2:ncol(log2tpmsub), function(z){
+  ggdf = cbind(clusterID_sub, cell = log2tpmsub[,z])
+  title = colnames(log2tpmsub)[z]
+  p1 = ggplot(ggdf,
+              aes(
+                x = cluster,
+                y = cell,
+                fill = factor(cluster)
+              )
+              ) +
+    geom_violin() +
+    theme_bw() +
+    ggtitle(title)
+  print(p1)
+  })
+dev.off()
+
+```
+
